@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "templator"
+version = "0.0.1"
+description = "Template extraction and layout tools for PDF and image label workflows."
+readme = "README.md"
+authors = [{ name = "Templator Contributors" }]
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pymupdf>=1.23",
+    "pillow>=10.0",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+opencv = [
+    "opencv-python>=4.9",
+]
+
+[project.urls]
+Homepage = "https://example.com/templator"
+
+[project.scripts]
+templator = "templator.cli:main"
+
+[tool.hatch.build]
+packages = [{ include = "templator", from = "src" }]
