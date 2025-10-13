@@ -36,6 +36,19 @@ Templator is a Python 3.12 library focused on extracting label templates from PD
 
 Templator expresses template coordinates in a custom `percent_of_width` space where both the x and y coordinates are scaled by the page width. For a point `(x_pt, y_pt)` on a page with width `page_w_pt`, the scaled coordinates are `(x_pct, y_pct) = (100 * x_pt / page_w_pt, 100 * y_pt / page_w_pt)`. This ensures consistent downstream alignment with printing systems that normalize everything to page width.
 
+## Exporting Templates
+
+Templator exposes helpers for writing extracted or synthesised templates to disk:
+
+```python
+from templator.exporters import export_csv, export_json
+
+export_json(template, "labels.json")
+export_csv(template, "labels.csv", coord_space="mm")
+```
+
+Both functions default to the `percent_width` coordinate space, preserving the contract that *both* x and y values are scaled by the page width. When alternative spaces are required, pass `coord_space="points"`, `"inches"`, or `"mm"`. Outputs are deterministic and sorted row-major (top-to-bottom, left-to-right) so repeated exports of the same template produce identical files—critical for regression testing and downstream diffing.
+
 ## Repository Layout
 
 ```

@@ -7,7 +7,17 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from . import geometry
+
 from .models import CoordinateSpace, ExtractedTemplate
+
+
+_COORDINATE_SPACES: tuple[CoordinateSpace, ...] = (
+    "percent_width",
+    "points",
+    "inches",
+    "mm",
+)
 
 
 def _normalise_path(path: str | Path) -> Path:
@@ -15,6 +25,16 @@ def _normalise_path(path: str | Path) -> Path:
     if not result.parent.exists():
         result.parent.mkdir(parents=True, exist_ok=True)
     return result
+
+
+def _validate_coord_space(coord_space: CoordinateSpace) -> CoordinateSpace:
+    if coord_space not in _COORDINATE_SPACES:
+        msg = (
+            "Unsupported coordinate space. "
+            f"Expected one of {_COORDINATE_SPACES!r}, received {coord_space!r}."
+        )
+        raise ValueError(msg)
+    return coord_space
 
 
 def export_json(
@@ -26,8 +46,11 @@ def export_json(
 ) -> Path:
     """Serialise the template to JSON."""
 
+    coord_space = _validate_coord_space(coord_space)
     target = _normalise_path(path)
+    centers = geometry.ensure_row_major(template.centers(coord_space))
     payload = template.to_dict(coord_space)
+    payload["centers"] = centers
     target.write_text(json.dumps(payload, indent=indent, sort_keys=True))
     return target
 
@@ -40,8 +63,9 @@ def export_csv(
 ) -> Path:
     """Serialise template centres to CSV."""
 
+    coord_space = _validate_coord_space(coord_space)
     target = _normalise_path(path)
-    centers = template.centers(coord_space)
+    centers = geometry.ensure_row_major(template.centers(coord_space))
     with target.open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["x", "y", "coord_space"])
