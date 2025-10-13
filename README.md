@@ -22,9 +22,11 @@ Templator is a Python 3.12 library focused on extracting label templates from PD
    ```bash
    uv run templator --help
    ```
-   The CLI exposes `extract` and `synthesise-circles` subcommands that document
-   the planned workflow. Both commands currently report that their
-   implementations are forthcoming.
+   The CLI exposes `extract` and `synthesize-circles` subcommands. `extract`
+   performs vector extraction with an automatic raster fallback and writes
+   exporter-backed outputs (defaulting to `percent_width` JSON). The
+   `synthesize-circles` helper generates circular layouts via the geometry
+   synthesiser with the same exporter defaults.
 
 ## Library Goals
 
