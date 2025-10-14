@@ -6,44 +6,13 @@ from pathlib import Path
 import pathlib
 import sys
 
-import fitz
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
+from scripts.gen_rect_template_pdf import RectTemplateSpec, generate_rect_template_pdf
+
 from templator.pdf_extract import extract_template
-
-
-def _draw_grid(
-    path: Path,
-    *,
-    page_size: tuple[float, float],
-    rows: int,
-    columns: int,
-    label_size: tuple[float, float],
-    start: tuple[float, float],
-    spacing: tuple[float, float],
-    radius: float = 0.0,
-) -> None:
-    doc = fitz.open()
-    page = doc.new_page(width=page_size[0], height=page_size[1])
-    width, height = label_size
-    start_x, start_y = start
-    step_x, step_y = spacing
-    for row in range(rows):
-        for col in range(columns):
-            x0 = start_x + col * step_x
-            y0 = start_y + row * step_y
-            rect = fitz.Rect(x0, y0, x0 + width, y0 + height)
-            shape = page.new_shape()
-            if radius:
-                shape.draw_rect(rect, radius=radius)
-            else:
-                shape.draw_rect(rect)
-            shape.finish(color=(0, 0, 0), fill=None)
-            shape.commit()
-    doc.save(path)
-    doc.close()
 
 
 def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
@@ -54,8 +23,7 @@ def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
     spacing = (label_size[0] + 12.0, label_size[1] + 18.0)
     start = (50.0, 70.0)
 
-    _draw_grid(
-        pdf_path,
+    spec = RectTemplateSpec(
         page_size=page_size,
         rows=rows,
         columns=columns,
@@ -63,6 +31,7 @@ def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
         start=start,
         spacing=spacing,
     )
+    generate_rect_template_pdf(pdf_path, spec=spec)
 
     template = extract_template(pdf_path)
     assert template is not None
@@ -101,23 +70,23 @@ def test_extracts_rounded_rectangles(tmp_path: Path) -> None:
     label_size = (90.0, 60.0)
     spacing = (label_size[0] + 20.0, label_size[1] + 16.0)
     start = (36.0, 48.0)
-    radius_fraction = 0.15
+    corner_radius = 0.15 * min(label_size)
 
-    _draw_grid(
-        pdf_path,
+    spec = RectTemplateSpec(
         page_size=page_size,
         rows=rows,
         columns=columns,
         label_size=label_size,
         start=start,
         spacing=spacing,
-        radius=radius_fraction,
+        corner_radius=corner_radius,
     )
+    generate_rect_template_pdf(pdf_path, spec=spec)
 
     template = extract_template(pdf_path)
     assert template is not None
 
-    expected_radius = radius_fraction * min(label_size)
+    expected_radius = corner_radius
     assert float(template.metadata.get("corner_radius_pt", "0")) == pytest.approx(expected_radius, abs=0.1)
 
     assert template.grid.rows == rows
