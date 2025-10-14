@@ -69,3 +69,49 @@ Both functions default to the `percent_width` coordinate space, preserving the c
 ```
 
 Scripts in `scripts/` are reserved for demos and reproducible experiments, while `tests/` will collect unit and integration tests as the extractor and exporter implementations grow.
+
+## Utility Scripts
+
+Templator ships with helper scripts for generating demo assets and exercising the
+extractors. They are invoked with `python` (or `uv run python`) and emit files in
+the working directory unless paths are provided.
+
+### `scripts/gen_rect_template_pdf.py`
+
+Generate a synthetic rectangular grid as a vector PDF and immediately run the
+vector extractor against the result. By default, it uses PyMuPDF for drawing,
+but the optional `reportlab` dependency enables a ReportLab backend:
+
+```bash
+uv run python scripts/gen_rect_template_pdf.py output.pdf --json output.json
+uv pip install reportlab  # optional backend
+uv run python scripts/gen_rect_template_pdf.py output.pdf --backend reportlab
+```
+
+### `scripts/rasterize_pdf.py`
+
+Render a PDF page to an image and optionally re-embed it into a rasterised PDF.
+If no output paths are supplied, a PNG is created next to the source PDF. Both
+the PNG and raster PDF work with the raster extractor:
+
+```bash
+uv run python scripts/rasterize_pdf.py template.pdf --pdf raster.pdf --json raster.json
+```
+
+### `scripts/demo_extract.py`
+
+Run an end-to-end demo that generates a synthetic PDF, exports the vector
+extraction to JSON, rasterises the document, and exports the raster extraction.
+The demo writes all artefacts to `./demo_output` by default:
+
+```bash
+uv run python scripts/demo_extract.py --output-dir demo_output
+```
+
+### Optional dependencies
+
+* `reportlab` – enables the `--backend reportlab` mode in
+  `gen_rect_template_pdf.py` for high-quality PDF generation:
+  ```bash
+  uv pip install reportlab
+  ```
