@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pathlib
 import random
-import sys
 
 import pytest
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from scripts.gen_rect_template_pdf import RectTemplateSpec, generate_rect_template_pdf
 from scripts.rasterize_pdf import rasterize_page
 
 from templator.image_extract import extract_template
+
+
+def _centers_from_spec(spec: RectTemplateSpec) -> list[tuple[float, float]]:
+    width, height = spec.label_size
+    start_x, start_y = spec.start
+    step_x, step_y = spec.spacing
+    centers: list[tuple[float, float]] = []
+    for row in range(spec.rows):
+        for col in range(spec.columns):
+            x = start_x + col * step_x + width / 2.0
+            y = start_y + row * step_y + height / 2.0
+            centers.append((x, y))
+    return centers
 
 
 def _abs_error(value: float, expected: float) -> float:
@@ -24,31 +33,27 @@ def _abs_error(value: float, expected: float) -> float:
 def _assert_template_matches(
     template_path: Path,
     *,
-    rows: int,
-    columns: int,
-    label_size: tuple[float, float],
-    start: tuple[float, float],
-    spacing: tuple[float, float],
+    spec: RectTemplateSpec,
     dpi: int,
 ) -> None:
     template = extract_template(template_path, dpi=dpi)
     assert template is not None
 
-    width, height = label_size
-    spacing_x, spacing_y = spacing
+    width, height = spec.label_size
+    spacing_x, spacing_y = spec.spacing
 
-    assert template.grid.rows == rows
-    assert template.grid.columns == columns
+    assert template.grid.rows == spec.rows
+    assert template.grid.columns == spec.columns
     assert _abs_error(template.grid.delta_x_pt, spacing_x) <= 0.75
     assert _abs_error(template.grid.delta_y_pt, spacing_y) <= 0.75
 
     assert _abs_error(template.label.width_pt, width) <= 0.75
     assert _abs_error(template.label.height_pt, height) <= 0.75
 
-    expected_top_left = (start[0] + width / 2.0, start[1] + height / 2.0)
+    expected_top_left = (spec.start[0] + width / 2.0, spec.start[1] + height / 2.0)
     expected_bottom_left = (
-        start[0] + width / 2.0,
-        start[1] + (rows - 1) * spacing_y + height / 2.0,
+        spec.start[0] + width / 2.0,
+        spec.start[1] + (spec.rows - 1) * spacing_y + height / 2.0,
     )
 
     assert _abs_error(template.anchors.top_left_pt[0], expected_top_left[0]) <= 1.0
@@ -57,8 +62,13 @@ def _assert_template_matches(
     assert _abs_error(template.anchors.bottom_left_pt[1], expected_bottom_left[1]) <= 1.0
 
     centers = list(template.iter_centers())
-    assert len(centers) == rows * columns
+    assert len(centers) == spec.rows * spec.columns
     assert centers == sorted(centers, key=lambda pt: (pt[1], pt[0]))
+
+    expected_centers = _centers_from_spec(spec)
+    for actual, expected in zip(centers, expected_centers, strict=True):
+        assert _abs_error(actual[0], expected[0]) <= 1.5
+        assert _abs_error(actual[1], expected[1]) <= 1.5
 
 
 def test_extracts_basic_raster_grid(tmp_path: Path) -> None:
@@ -84,11 +94,7 @@ def test_extracts_basic_raster_grid(tmp_path: Path) -> None:
 
     _assert_template_matches(
         raster_path,
-        rows=rows,
-        columns=columns,
-        label_size=label_size,
-        start=start,
-        spacing=spacing,
+        spec=spec,
         dpi=220,
     )
 
@@ -124,10 +130,6 @@ def test_raster_property_variations(tmp_path: Path, rows: int, columns: int) -> 
 
     _assert_template_matches(
         raster_path,
-        rows=rows,
-        columns=columns,
-        label_size=(label_width, label_height),
-        start=(margin_x, margin_y),
-        spacing=(spacing_x, spacing_y),
+        spec=spec,
         dpi=dpi,
     )

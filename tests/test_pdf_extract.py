@@ -3,16 +3,25 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pathlib
-import sys
 
 import pytest
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from scripts.gen_rect_template_pdf import RectTemplateSpec, generate_rect_template_pdf
 
 from templator.pdf_extract import extract_template
+
+
+def _centers_from_spec(spec: RectTemplateSpec) -> list[tuple[float, float]]:
+    width, height = spec.label_size
+    start_x, start_y = spec.start
+    step_x, step_y = spec.spacing
+    centers: list[tuple[float, float]] = []
+    for row in range(spec.rows):
+        for col in range(spec.columns):
+            x = start_x + col * step_x + width / 2.0
+            y = start_y + row * step_y + height / 2.0
+            centers.append((x, y))
+    return centers
 
 
 def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
@@ -60,6 +69,11 @@ def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
     assert len(centers) == rows * columns
     assert centers == sorted(centers, key=lambda pt: (pt[1], pt[0]))
 
+    expected_centers = _centers_from_spec(spec)
+    for actual, expected in zip(centers, expected_centers, strict=True):
+        assert actual[0] == pytest.approx(expected[0], abs=1e-6)
+        assert actual[1] == pytest.approx(expected[1], abs=1e-6)
+
     assert float(template.metadata.get("corner_radius_pt", "0")) == pytest.approx(0.0)
 
 
@@ -96,3 +110,8 @@ def test_extracts_rounded_rectangles(tmp_path: Path) -> None:
 
     assert template.label.width_pt == pytest.approx(label_size[0])
     assert template.label.height_pt == pytest.approx(label_size[1])
+
+    expected_centers = _centers_from_spec(spec)
+    for actual, expected in zip(template.iter_centers(), expected_centers, strict=True):
+        assert actual[0] == pytest.approx(expected[0], abs=1e-6)
+        assert actual[1] == pytest.approx(expected[1], abs=1e-6)

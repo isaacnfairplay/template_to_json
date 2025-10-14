@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
-import pathlib
-import sys
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+pytest.importorskip("hypothesis")
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from templator import geometry
 
@@ -30,6 +30,29 @@ def test_percent_of_width_round_trip() -> None:
 
     restored = geometry.percent_sequence([point], page_width)[0]
     assert restored == pytest.approx(percent)
+
+
+@given(
+    st.floats(min_value=100.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
+    st.tuples(
+        st.floats(min_value=-1000.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
+        st.floats(min_value=-1000.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
+    ),
+)
+@settings(max_examples=50, deadline=None)
+def test_percent_of_width_inverse(page_width: float, point: tuple[float, float]) -> None:
+    percent = geometry.percent_of_width(point, page_width)
+    restored = geometry.percent_sequence([(percent[0] * page_width / 100.0, percent[1] * page_width / 100.0)], page_width)
+    assert restored[0] == pytest.approx(percent)
+
+
+@given(st.floats(min_value=0.01, max_value=500.0, allow_nan=False, allow_infinity=False))
+@settings(max_examples=50, deadline=None)
+def test_unit_conversion_round_trip(value: float) -> None:
+    inches = geometry.points_to_inches(value)
+    millimetres = geometry.points_to_mm(value)
+    assert geometry.inches_to_points(inches) == pytest.approx(value)
+    assert geometry.mm_to_points(millimetres) == pytest.approx(value)
 
 
 def test_synthesize_circles_simple_grid() -> None:
@@ -151,3 +174,65 @@ def test_synthesize_circles_invalid_configuration() -> None:
             diameter_pt=300.0,
             margin_pt=(10.0, 10.0, 10.0, 10.0),
         )
+
+
+@st.composite
+def circle_layouts(draw: st.DrawFn) -> tuple[str, float, float, float, tuple[float, float, float, float], float, int | None, int | None]:
+    layout = draw(st.sampled_from(["simple", "close"]))
+    diameter = draw(st.floats(min_value=20.0, max_value=120.0, allow_nan=False, allow_infinity=False))
+    gap = draw(st.floats(min_value=0.0, max_value=diameter * 0.5, allow_nan=False, allow_infinity=False))
+    margin_top = draw(st.floats(min_value=0.0, max_value=60.0, allow_nan=False, allow_infinity=False))
+    margin_right = draw(st.floats(min_value=0.0, max_value=60.0, allow_nan=False, allow_infinity=False))
+    margin_bottom = draw(st.floats(min_value=0.0, max_value=60.0, allow_nan=False, allow_infinity=False))
+    margin_left = draw(st.floats(min_value=0.0, max_value=60.0, allow_nan=False, allow_infinity=False))
+    min_width = diameter + margin_left + margin_right + 5.0
+    min_height = diameter + margin_top + margin_bottom + 5.0
+    page_w = draw(st.floats(min_value=min_width, max_value=min_width + 400.0, allow_nan=False, allow_infinity=False))
+    page_h = draw(st.floats(min_value=min_height, max_value=min_height + 400.0, allow_nan=False, allow_infinity=False))
+    max_cols = draw(st.one_of(st.none(), st.integers(min_value=1, max_value=6)))
+    max_rows = draw(st.one_of(st.none(), st.integers(min_value=1, max_value=6)))
+    return (
+        layout,
+        page_w,
+        page_h,
+        diameter,
+        (margin_top, margin_right, margin_bottom, margin_left),
+        gap,
+        max_cols,
+        max_rows,
+    )
+
+
+@given(circle_layouts())
+@settings(max_examples=25, deadline=None)
+def test_circle_synthesizer_respects_spacing(
+    params: tuple[str, float, float, float, tuple[float, float, float, float], float, int | None, int | None]
+) -> None:
+    layout, page_w, page_h, diameter, margins, gap, max_cols, max_rows = params
+    template = geometry.synthesize_circles(
+        layout=layout,
+        page_w_pt=page_w,
+        page_h_pt=page_h,
+        diameter_pt=diameter,
+        margin_pt=margins,
+        gap_pt=gap,
+        max_cols=max_cols,
+        max_rows=max_rows,
+    )
+
+    radius = diameter / 2.0
+    top, right, bottom, left = margins
+    min_x = left + radius - 1e-6
+    max_x = page_w - right - radius + 1e-6
+    min_y = top + radius - 1e-6
+    max_y = page_h - bottom - radius + 1e-6
+
+    centres = template.centers("points")
+    assert centres, "Expected at least one centre from synthesizer"
+
+    for x, y in centres:
+        assert min_x <= x <= max_x
+        assert min_y <= y <= max_y
+
+    minimum_distance = _pairwise_min_distance(list(centres))
+    assert minimum_distance >= diameter + gap - 1e-6
