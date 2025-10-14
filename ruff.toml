@@ -1,0 +1,33 @@
+line-length = 100
+indent-width = 4
+target-version = "py312"
+
+[lint]
+select = [
+    "F",  # Pyflakes
+    "E", "W",  # pycodestyle
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "UP",  # pyupgrade
+    "N",  # pep8-naming
+    "S",  # flake8-bandit
+    "C4",  # flake8-comprehensions
+    "A",  # flake8-builtins
+    "TID",  # tidy imports
+    "TRY",  # tryceratops
+    "SIM",  # simplify
+    "PL",  # pylint-inspired rules
+    "RUF",  # Ruff-specific
+]
+ignore = [
+    "S101",  # allow asserts in tests and library code
+]
+fix = false
+
+[lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

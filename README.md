@@ -28,6 +28,35 @@ Templator is a Python 3.12 library focused on extracting label templates from PD
    `synthesize-circles` helper generates circular layouts via the geometry
    synthesiser with the same exporter defaults.
 
+## Development workflow
+
+Templator's continuous integration uses [`uv`](https://github.com/astral-sh/uv)
+and [`uvx`](https://docs.astral.sh/uv/concepts/tools/#uvx) for dependency
+management and tool execution. The following commands mirror the CI steps and
+are available locally:
+
+- Format the codebase with Ruff:
+  ```bash
+  uvx ruff format .
+  # or use the helper script, which forwards any extra arguments
+  scripts/format.sh
+  ```
+- Run linting and static analysis:
+  ```bash
+  uvx ruff check .
+  uvx mypy .
+  # or run both via the helper script
+  scripts/lint.sh
+  ```
+- Execute the test suite with the same options as CI:
+  ```bash
+  uv run pytest -q
+  ```
+- Build distributable artifacts to match the release job:
+  ```bash
+  uv build
+  ```
+
 ## Library Goals
 
 - **Extract** rectangular and circular label layouts from PDFs and raster images using deterministic geometry inference.
