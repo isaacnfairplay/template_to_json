@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from io import BytesIO
 import json
@@ -12,6 +13,12 @@ import fitz  # type: ignore[import-untyped]
 from PIL import Image
 
 from . import geometry
+from .encoders import (
+    EncoderDependencyError,
+    EncoderLookupError,
+    EncoderRegistry,
+    get_default_registry,
+)
 from .models import (
     AnchorPoints,
     CoordinateSpace,
@@ -85,9 +92,16 @@ class RenderSpec:
     template: ExtractedTemplate
     items: Sequence[RenderItem]
     coord_space: CoordinateSpace = "percent_width"
+    encoder_registry: EncoderRegistry | None = None
 
     @classmethod
-    def from_json(cls, template_path: Path, job_path: Path) -> "RenderSpec":
+    def from_json(
+        cls,
+        template_path: Path,
+        job_path: Path,
+        *,
+        encoder_registry: EncoderRegistry | None = None,
+    ) -> "RenderSpec":
         """Load a :class:`RenderSpec` from JSON descriptors.
 
         Parameters
@@ -105,10 +119,20 @@ class RenderSpec:
         job_data = json.loads(job_path.read_text())
         coord_space = _normalise_coord_space(job_data.get("coord_space"))
         items = [
-            _parse_render_item(entry, coord_space, base_path=job_path.parent)
+            _parse_render_item(
+                entry,
+                coord_space,
+                base_path=job_path.parent,
+                encoder_registry=encoder_registry,
+            )
             for entry in job_data.get("items", [])
         ]
-        return cls(template=template, items=items, coord_space=coord_space)
+        return cls(
+            template=template,
+            items=items,
+            coord_space=coord_space,
+            encoder_registry=encoder_registry,
+        )
 
 
 def render_to_pdf(spec: RenderSpec, out_path: str | Path) -> Path:
@@ -368,6 +392,7 @@ def _parse_render_item(
     default_coord_space: CoordinateSpace,
     *,
     base_path: Path,
+    encoder_registry: EncoderRegistry | None,
 ) -> RenderItem:
     if not isinstance(data, dict):  # pragma: no cover - defensive guard
         msg = "Render item entries must be JSON objects."
@@ -380,7 +405,12 @@ def _parse_render_item(
         if isinstance(entry, dict)
     ]
     symbols = [
-        _parse_symbol(entry, default_coord_space, base_path=base_path)
+        _parse_symbol(
+            entry,
+            default_coord_space,
+            base_path=base_path,
+            encoder_registry=encoder_registry,
+        )
         for entry in symbol_entries  # type: ignore[list-item]
         if isinstance(entry, dict)
     ]
@@ -427,14 +457,45 @@ def _parse_symbol(
     default_coord_space: CoordinateSpace,
     *,
     base_path: Path,
+    encoder_registry: EncoderRegistry | None,
 ) -> SymbolSpec:
     image_path_raw = entry.get("image_path")
-    if not isinstance(image_path_raw, str):
-        msg = "Symbol specification must include an image_path."
-        raise ValueError(msg)
-    image_path = (base_path / image_path_raw).resolve()
-    with Image.open(image_path) as handle:
-        image = handle.convert("RGBA")
+    if isinstance(image_path_raw, str):
+        image_path = (base_path / image_path_raw).resolve()
+        with Image.open(image_path) as handle:
+            image = handle.convert("RGBA")
+    else:
+        symbol_type = entry.get("symbol_type")
+        payload = entry.get("payload")
+        if not (isinstance(symbol_type, str) and isinstance(payload, str)):
+            msg = (
+                "Symbol specification must include either an image_path or a"
+                " symbol_type with payload."
+            )
+            raise ValueError(msg)
+        registry = encoder_registry or get_default_registry()
+        try:
+            encoder = registry.get(symbol_type)
+        except EncoderLookupError as exc:
+            raise ValueError(str(exc)) from exc
+        pixel_size = _parse_pixel_size(entry.get("pixel_size"))
+        options_raw = entry.get("encoder_options")
+        options: Mapping[str, object] | None
+        if options_raw is None:
+            options = None
+        elif isinstance(options_raw, Mapping):
+            options = options_raw  # type: ignore[assignment]
+        else:
+            msg = "encoder_options must be a mapping when provided"
+            raise ValueError(msg)
+        try:
+            image = encoder.encode(payload, size=pixel_size, options=options)
+        except EncoderDependencyError as exc:
+            raise ValueError(str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - defensive guard
+            msg = f"Failed to encode symbol {symbol_type!r}: {exc}"
+            raise ValueError(msg) from exc
+        image = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
     align_x = str(entry.get("align_x", "center"))
     align_y = str(entry.get("align_y", "center"))
     offset = tuple(float(value) for value in entry.get("offset", (0.0, 0.0)))
@@ -453,4 +514,19 @@ def _parse_symbol(
         box_size=box_size,
         box_coord_space=box_coord_space,  # type: ignore[arg-type]
     )
+
+
+def _parse_pixel_size(value: object) -> tuple[int, int] | None:
+    if not isinstance(value, (list, tuple)):
+        return None
+    if len(value) != 2:
+        msg = "pixel_size must contain two values"
+        raise ValueError(msg)
+    width, height = value
+    width_int = int(width)
+    height_int = int(height)
+    if width_int <= 0 or height_int <= 0:
+        msg = "pixel_size values must be positive"
+        raise ValueError(msg)
+    return width_int, height_int
 

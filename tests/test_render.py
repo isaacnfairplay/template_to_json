@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import fitz  # type: ignore[import-untyped]
 import pytest
 from PIL import Image
 
-from templator import exporters, render
+from templator import encoders, exporters, render
 from templator.models import AnchorPoints, ExtractedTemplate, GridMetrics, LabelGeometry, PageMetrics
 
 
@@ -165,3 +166,53 @@ def test_render_spec_from_json(tmp_path: Path) -> None:
     output_path = tmp_path / "job.pdf"
     render.render_to_pdf(spec, output_path)
     assert output_path.exists()
+
+
+def test_render_spec_symbol_encoder_lookup(tmp_path: Path) -> None:
+    template = _build_template()
+    template_path = tmp_path / "template.json"
+    exporters.export_json(template, template_path, coord_space="percent_width")
+
+    registry = encoders.EncoderRegistry()
+
+    class StubEncoder:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[int, int] | None, Mapping[str, object] | None]] = []
+
+        def encode(
+            self,
+            payload: str,
+            *,
+            size: tuple[int, int] | None = None,
+            options: Mapping[str, object] | None = None,
+        ) -> Image.Image:
+            self.calls.append((payload, size, options))
+            width, height = size or (20, 20)
+            return Image.new("RGBA", (width, height), (0, 255, 0, 255))
+
+    stub = StubEncoder()
+    registry.register("stub", lambda: stub)
+
+    job_data = {
+        "coord_space": "percent_width",
+        "items": [
+            {},
+            {
+                "symbols": [
+                    {
+                        "symbol_type": "stub",
+                        "payload": "PAYLOAD",
+                        "pixel_size": [18, 18],
+                        "encoder_options": {"border": 2},
+                    }
+                ]
+            },
+        ],
+    }
+
+    job_path = tmp_path / "encoder_job.json"
+    job_path.write_text(json.dumps(job_data))
+
+    spec = render.RenderSpec.from_json(template_path, job_path, encoder_registry=registry)
+    assert stub.calls and stub.calls[0][0] == "PAYLOAD"
+    assert spec.items[1].symbols[0].image.size == (18, 18)
