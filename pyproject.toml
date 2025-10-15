@@ -30,6 +30,12 @@ test = [
     "hypothesis>=6.98",
     "pytest>=7.4",
 ]
+encoders = [
+    "python-barcode>=0.15",
+    "segno>=1.6",
+    "qrcode>=7.4",
+    "pystrich>=0.10",
+]
 
 [project.urls]
 Homepage = "https://example.com/templator"
@@ -38,4 +44,19 @@ Homepage = "https://example.com/templator"
 templator = "templator.cli:main"
 
 [tool.hatch.build]
-packages = [{ include = "templator", from = "src" }]
+sources = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["templator"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/templator",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+    "mypy.ini",
+    "ruff.toml",
+    "tests",
+    "scripts",
+]
