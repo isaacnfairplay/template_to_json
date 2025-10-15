@@ -6,10 +6,11 @@ geometry helpers, and data exporters.  Importing the modules here keeps
 implementation matures.
 """
 
-from . import cli, exporters, geometry, image_extract, models, pdf_extract, render
+from . import cli, encoders, exporters, geometry, image_extract, models, pdf_extract, render
 
 __all__ = [
     "cli",
+    "encoders",
     "exporters",
     "geometry",
     "image_extract",
