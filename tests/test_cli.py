@@ -7,6 +7,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import fitz  # type: ignore[import-untyped]
+import pytest
+from PIL import Image
+
 from scripts.gen_rect_template_pdf import RectTemplateSpec, generate_rect_template_pdf
 
 
@@ -128,3 +132,81 @@ def test_cli_synthesize_circles_supports_basic_options(tmp_path: Path) -> None:
     assert payload["centers_coord_space"] == "percent_width"
     assert payload["grid"]["kind"].startswith("circle_")
     assert payload["centers"], "Expected synthesised centres to be present"
+
+
+def test_cli_render_generates_pdf(tmp_path: Path) -> None:
+    template_payload = {
+        "page": {"width_pt": 200.0, "height_pt": 120.0},
+        "grid": {
+            "kind": "rectangular",
+            "rows": 1,
+            "columns": 1,
+            "delta_x_pt": 80.0,
+            "delta_y_pt": 40.0,
+        },
+        "label": {"shape": "rectangle", "width_pt": 80.0, "height_pt": 40.0},
+        "anchors": {
+            "points": {"top_left": [20.0, 100.0], "bottom_left": [20.0, 20.0]},
+            "percent_width": {"top_left": [10.0, 50.0], "bottom_left": [10.0, 10.0]},
+        },
+        "centers": [[60.0, 60.0]],
+        "centers_coord_space": "points",
+        "metadata": {},
+    }
+
+    template_path = tmp_path / "template.json"
+    template_path.write_text(json.dumps(template_payload))
+
+    symbol_path = tmp_path / "symbol.png"
+    Image.new("RGBA", (12, 12), (0, 128, 255, 255)).save(symbol_path)
+
+    job_payload = {
+        "coord_space": "percent_width",
+        "items": [
+            {
+                "text_fields": [
+                    {
+                        "text": "CLI",
+                        "font_size": 12,
+                        "offset": [0.0, 0.0],
+                        "box_size": [30.0, 15.0],
+                    }
+                ],
+                "symbols": [
+                    {
+                        "image_path": symbol_path.name,
+                        "box_size": [10.0, 10.0],
+                        "box_coord_space": "percent_width",
+                    }
+                ],
+            }
+        ],
+    }
+
+    job_path = tmp_path / "job.json"
+    job_path.write_text(json.dumps(job_payload))
+
+    output_pdf = tmp_path / "output.pdf"
+    result = _run_cli(
+        tmp_path,
+        [
+            "render",
+            "--template",
+            str(template_path),
+            "--job",
+            str(job_path),
+            "--output",
+            str(output_pdf),
+        ],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output_pdf.exists()
+
+    doc = fitz.open(output_pdf)
+    try:
+        page = doc[0]
+        assert page.rect.width == pytest.approx(200.0)
+        assert page.rect.height == pytest.approx(120.0)
+    finally:
+        doc.close()

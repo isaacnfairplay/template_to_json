@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from . import exporters, geometry, image_extract, pdf_extract
+from . import exporters, geometry, image_extract, pdf_extract, render
 from .models import ExtractedTemplate
 
 
@@ -50,7 +50,9 @@ def _export_outputs(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="templator",
-        description="Extract rectangular label templates or synthesise circle layouts.",
+        description=(
+            "Extract label templates, synthesise circle layouts, or render jobs to PDF."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -163,6 +165,29 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     synth_parser.set_defaults(handler=_handle_synth)
 
+    render_parser = subparsers.add_parser(
+        "render", help="Render a template-driven job specification to PDF."
+    )
+    render_parser.add_argument(
+        "--template",
+        type=Path,
+        required=True,
+        help="Path to a template JSON file produced by templator export tools.",
+    )
+    render_parser.add_argument(
+        "--job",
+        type=Path,
+        required=True,
+        help="Path to a job specification JSON file containing render instructions.",
+    )
+    render_parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Destination PDF path for the rendered output.",
+    )
+    render_parser.set_defaults(handler=_handle_render)
+
     return parser
 
 
@@ -273,6 +298,18 @@ def _handle_synth(args: argparse.Namespace) -> int:
 
     for kind, path in outputs:
         print(f"Wrote {kind.upper()} output to {path}")
+
+    return 0
+
+
+def _handle_render(args: argparse.Namespace) -> int:
+    template_path: Path = args.template
+    job_path: Path = args.job
+    output_path: Path = args.output
+
+    spec = render.RenderSpec.from_json(template_path, job_path)
+    result_path = render.render_to_pdf(spec, output_path)
+    print(f"Wrote PDF output to {result_path}")
 
     return 0
 
