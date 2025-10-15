@@ -210,3 +210,59 @@ def test_cli_render_generates_pdf(tmp_path: Path) -> None:
         assert page.rect.height == pytest.approx(120.0)
     finally:
         doc.close()
+
+
+def test_cli_run_job_executes_spec(tmp_path: Path) -> None:
+    template_payload = {
+        "page": {"width_pt": 200.0, "height_pt": 120.0},
+        "grid": {
+            "kind": "rectangular",
+            "rows": 1,
+            "columns": 1,
+            "delta_x_pt": 80.0,
+            "delta_y_pt": 40.0,
+        },
+        "label": {"shape": "rectangle", "width_pt": 80.0, "height_pt": 40.0},
+        "anchors": {
+            "points": {"top_left": [20.0, 100.0], "bottom_left": [20.0, 20.0]},
+            "percent_width": {"top_left": [10.0, 50.0], "bottom_left": [10.0, 10.0]},
+        },
+        "centers": [[60.0, 60.0]],
+        "centers_coord_space": "points",
+        "metadata": {},
+    }
+
+    template_path = tmp_path / "template.json"
+    template_path.write_text(json.dumps(template_payload))
+
+    spec_path = tmp_path / "job.json"
+    spec_payload = {
+        "options": {"chunk_size": 1},
+        "jobs": [
+            {
+                "name": "cli",
+                "template": "template.json",
+                "output": "outputs/cli.pdf",
+                "coord_space": "percent_width",
+                "items": [
+                    {
+                        "text_fields": [
+                            {
+                                "text": "CLI",
+                                "font_size": 12,
+                                "box_size": [40.0, 20.0],
+                            }
+                        ]
+                    }
+                ],
+            }
+        ],
+    }
+    spec_path.write_text(json.dumps(spec_payload))
+
+    result = _run_cli(tmp_path, ["run-job", str(spec_path)])
+
+    assert result.returncode == 0, result.stderr
+    output_pdf = tmp_path / "outputs" / "cli.pdf"
+    assert output_pdf.exists()
+    assert "1 succeeded" in result.stdout

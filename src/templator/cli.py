@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from . import exporters, geometry, image_extract, pdf_extract, render
+from . import exporters, geometry, image_extract, job_runner, pdf_extract, render
 from .models import ExtractedTemplate
 
 
@@ -188,6 +188,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     render_parser.set_defaults(handler=_handle_render)
 
+    run_job_parser = subparsers.add_parser(
+        "run-job",
+        help="Execute a batch rendering job described by a JSON or YAML specification.",
+    )
+    run_job_parser.add_argument(
+        "spec",
+        type=Path,
+        help="Path to the job specification file (JSON or YAML).",
+    )
+    run_job_parser.set_defaults(handler=_handle_run_job)
+
     return parser
 
 
@@ -312,6 +323,35 @@ def _handle_render(args: argparse.Namespace) -> int:
     print(f"Wrote PDF output to {result_path}")
 
     return 0
+
+
+def _handle_run_job(args: argparse.Namespace) -> int:
+    spec_path: Path = args.spec
+
+    try:
+        spec = job_runner.load_job_spec(spec_path)
+    except Exception as exc:  # pragma: no cover - exercised in CLI tests
+        print(f"Failed to load job specification: {exc}", file=sys.stderr)
+        return 1
+
+    runner = job_runner.JobRunner(spec.jobs, config=spec.config)
+    report = runner.run()
+
+    for result in report.results:
+        status = "SUCCESS" if result.success else "FAILED"
+        destination = result.output_path or result.definition.output_path
+        print(f"[{status}] {result.definition.display_name} -> {destination}")
+        if not result.success and result.error:
+            print(f"    error: {result.error}", file=sys.stderr)
+
+    summary = report.summary()
+    print(
+        "Completed {total} job(s): {succeeded} succeeded, {failed} failed.".format(
+            **summary
+        )
+    )
+
+    return 0 if not report.failed else 1
 
 
 def main(argv: list[str] | None = None) -> int:
