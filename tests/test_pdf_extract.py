@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import fitz
+
 import pytest
 
 from scripts.gen_rect_template_pdf import RectTemplateSpec, generate_rect_template_pdf
@@ -52,6 +54,7 @@ def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
     assert template.grid.columns == columns
     assert template.grid.delta_x_pt == pytest.approx(spacing[0])
     assert template.grid.delta_y_pt == pytest.approx(spacing[1])
+    assert template.grid.columns_per_row == (columns,) * rows
 
     assert template.label.width_pt == pytest.approx(label_size[0])
     assert template.label.height_pt == pytest.approx(label_size[1])
@@ -75,6 +78,7 @@ def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
         assert actual[1] == pytest.approx(expected[1], abs=1e-6)
 
     assert float(template.metadata.get("corner_radius_pt", "0")) == pytest.approx(0.0)
+    assert template.metadata.get("extraction") == "vector"
 
 
 def test_extracts_rounded_rectangles(tmp_path: Path) -> None:
@@ -107,6 +111,7 @@ def test_extracts_rounded_rectangles(tmp_path: Path) -> None:
     assert template.grid.columns == columns
     assert template.grid.delta_x_pt == pytest.approx(spacing[0])
     assert template.grid.delta_y_pt == pytest.approx(spacing[1])
+    assert template.grid.columns_per_row == (columns,) * rows
 
     assert template.label.width_pt == pytest.approx(label_size[0])
     assert template.label.height_pt == pytest.approx(label_size[1])
@@ -115,3 +120,63 @@ def test_extracts_rounded_rectangles(tmp_path: Path) -> None:
     for actual, expected in zip(template.iter_centers(), expected_centers, strict=True):
         assert actual[0] == pytest.approx(expected[0], abs=1e-6)
         assert actual[1] == pytest.approx(expected[1], abs=1e-6)
+
+    assert template.metadata.get("extraction") == "vector"
+
+
+def test_extracts_ragged_vector_grid(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "ragged.pdf"
+    page_size = (480.0, 320.0)
+    row_counts = (4, 3, 4)
+    label_size = (78.0, 42.0)
+    spacing = (label_size[0] + 14.0, label_size[1] + 18.0)
+    start = (44.0, 64.0)
+
+    doc = fitz.open()
+    page = doc.new_page(width=page_size[0], height=page_size[1])
+    for row_index, columns in enumerate(row_counts):
+        for column_index in range(columns):
+            x0 = start[0] + column_index * spacing[0]
+            y0 = start[1] + row_index * spacing[1]
+            rect = fitz.Rect(x0, y0, x0 + label_size[0], y0 + label_size[1])
+            shape = page.new_shape()
+            shape.draw_rect(rect)
+            shape.finish(color=(0, 0, 0), fill=None)
+            shape.commit()
+    doc.save(pdf_path)
+    doc.close()
+
+    template = extract_template(pdf_path)
+    assert template is not None
+
+    assert template.grid.rows == len(row_counts)
+    assert template.grid.columns == max(row_counts)
+    assert template.grid.delta_x_pt == pytest.approx(spacing[0])
+    assert template.grid.delta_y_pt == pytest.approx(spacing[1])
+    assert template.grid.columns_per_row == row_counts
+
+    expected_top_left = (start[0] + label_size[0] / 2.0, start[1] + label_size[1] / 2.0)
+    expected_bottom_left = (
+        start[0] + label_size[0] / 2.0,
+        start[1] + (len(row_counts) - 1) * spacing[1] + label_size[1] / 2.0,
+    )
+
+    assert template.anchors.top_left_pt == pytest.approx(expected_top_left)
+    assert template.anchors.bottom_left_pt == pytest.approx(expected_bottom_left)
+
+    centers = list(template.iter_centers())
+    assert len(centers) == sum(row_counts)
+    assert centers == sorted(centers, key=lambda pt: (pt[1], pt[0]))
+
+    expected_centers = []
+    for row_index, columns in enumerate(row_counts):
+        for column_index in range(columns):
+            x = start[0] + column_index * spacing[0] + label_size[0] / 2.0
+            y = start[1] + row_index * spacing[1] + label_size[1] / 2.0
+            expected_centers.append((x, y))
+
+    for actual, expected in zip(centers, expected_centers, strict=True):
+        assert actual[0] == pytest.approx(expected[0], abs=1e-6)
+        assert actual[1] == pytest.approx(expected[1], abs=1e-6)
+
+    assert template.metadata.get("extraction") == "vector"
