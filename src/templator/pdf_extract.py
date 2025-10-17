@@ -218,13 +218,17 @@ def extract_template(
             columns=max(column_counts),
             delta_x_pt=delta_x,
             delta_y_pt=delta_y,
+            columns_per_row=tuple(column_counts),
         )
 
         label_geometry = LabelGeometry(shape="rectangle", width_pt=label_width, height_pt=label_height)
 
         anchors = AnchorPoints(top_left_pt=top_left_center, bottom_left_pt=bottom_left_center)
 
-        metadata = {"corner_radius_pt": f"{corner_radius:.6f}"}
+        metadata = {
+            "corner_radius_pt": f"{corner_radius:.6f}",
+            "extraction": "vector",
+        }
 
         return ExtractedTemplate(
             page=page_metrics,
