@@ -50,11 +50,14 @@ def test_extracts_basic_vector_grid(tmp_path: Path) -> None:
 
     assert template.grid.rows == rows
     assert template.grid.columns == columns
+    assert template.grid.columns_per_row == (columns,) * rows
     assert template.grid.delta_x_pt == pytest.approx(spacing[0])
     assert template.grid.delta_y_pt == pytest.approx(spacing[1])
 
     assert template.label.width_pt == pytest.approx(label_size[0])
     assert template.label.height_pt == pytest.approx(label_size[1])
+
+    assert template.metadata.get("extraction") == "vector"
 
     expected_top_left = (start[0] + label_size[0] / 2.0, start[1] + label_size[1] / 2.0)
     assert template.anchors.top_left_pt == pytest.approx(expected_top_left)
@@ -105,11 +108,14 @@ def test_extracts_rounded_rectangles(tmp_path: Path) -> None:
 
     assert template.grid.rows == rows
     assert template.grid.columns == columns
+    assert template.grid.columns_per_row == (columns,) * rows
     assert template.grid.delta_x_pt == pytest.approx(spacing[0])
     assert template.grid.delta_y_pt == pytest.approx(spacing[1])
 
     assert template.label.width_pt == pytest.approx(label_size[0])
     assert template.label.height_pt == pytest.approx(label_size[1])
+
+    assert template.metadata.get("extraction") == "vector"
 
     expected_centers = _centers_from_spec(spec)
     for actual, expected in zip(template.iter_centers(), expected_centers, strict=True):
