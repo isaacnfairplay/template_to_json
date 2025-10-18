@@ -142,6 +142,55 @@ def _flatten_rows(rows: Sequence[Sequence[_DetectedRectangle]]) -> list[_Detecte
     return ordered
 
 
+def _rectangles_equivalent(
+    a: _DetectedRectangle,
+    b: _DetectedRectangle,
+    *,
+    tolerance: float = 0.05,
+) -> bool:
+    """Return :data:`True` when two rectangles describe the same drawing."""
+
+    ax, ay = a.center
+    bx, by = b.center
+    return (
+        abs(ax - bx) <= tolerance
+        and abs(ay - by) <= tolerance
+        and abs(a.width - b.width) <= tolerance
+        and abs(a.height - b.height) <= tolerance
+        and abs(a.radius - b.radius) <= tolerance
+    )
+
+
+def _merge_rectangles(a: _DetectedRectangle, b: _DetectedRectangle) -> _DetectedRectangle:
+    """Combine near-identical rectangles using averaged measurements."""
+
+    ax, ay = a.center
+    bx, by = b.center
+    center = ((ax + bx) / 2.0, (ay + by) / 2.0)
+    width = (a.width + b.width) / 2.0
+    height = (a.height + b.height) / 2.0
+    radius = (a.radius + b.radius) / 2.0
+    return _DetectedRectangle(center=center, width=width, height=height, radius=radius)
+
+
+def _deduplicate_rectangles(
+    rectangles: Sequence[_DetectedRectangle],
+    *,
+    tolerance: float = 0.05,
+) -> list[_DetectedRectangle]:
+    """Collapse duplicate rectangles emitted by stroke/fill drawing pairs."""
+
+    unique: list[_DetectedRectangle] = []
+    for rect in rectangles:
+        for index, existing in enumerate(unique):
+            if _rectangles_equivalent(rect, existing, tolerance=tolerance):
+                unique[index] = _merge_rectangles(existing, rect)
+                break
+        else:
+            unique.append(rect)
+    return unique
+
+
 def extract_template(
     path: str | Path,
     page: int = 0,
@@ -172,6 +221,7 @@ def extract_template(
             if detected is not None:
                 rectangles.append(detected)
 
+        rectangles = _deduplicate_rectangles(rectangles)
         if not rectangles:
             return None
 

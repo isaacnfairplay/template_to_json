@@ -11,6 +11,24 @@ from scripts.gen_rect_template_pdf import RectTemplateSpec, generate_rect_templa
 from templator.pdf_extract import extract_template
 
 
+def _generate_duplicate_rect_pdf(path: Path, spec: RectTemplateSpec) -> None:
+    import fitz
+
+    doc = fitz.open()
+    try:
+        page = doc.new_page(width=spec.page_size[0], height=spec.page_size[1])
+        for x0, y0, width, height in spec.iter_rectangles():
+            rect = fitz.Rect(x0, y0, x0 + width, y0 + height)
+            for _ in range(2):  # Draw stroke/fill style duplicates.
+                shape = page.new_shape()
+                shape.draw_rect(rect)
+                shape.finish(color=(0, 0, 0), fill=None)
+                shape.commit()
+        doc.save(path)
+    finally:
+        doc.close()
+
+
 def _centers_from_spec(spec: RectTemplateSpec) -> list[tuple[float, float]]:
     width, height = spec.label_size
     start_x, start_y = spec.start
@@ -121,3 +139,24 @@ def test_extracts_rounded_rectangles(tmp_path: Path) -> None:
     for actual, expected in zip(template.iter_centers(), expected_centers, strict=True):
         assert actual[0] == pytest.approx(expected[0], abs=1e-6)
         assert actual[1] == pytest.approx(expected[1], abs=1e-6)
+
+
+def test_extracts_grid_with_duplicate_drawings(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "duplicated.pdf"
+    spec = RectTemplateSpec(
+        page_size=(420.0, 300.0),
+        rows=3,
+        columns=2,
+        label_size=(92.0, 54.0),
+        start=(44.0, 62.0),
+        spacing=(112.0, 96.0),
+    )
+    _generate_duplicate_rect_pdf(pdf_path, spec)
+
+    template = extract_template(pdf_path)
+    assert template is not None
+
+    assert template.grid.rows == spec.rows
+    assert template.grid.columns == spec.columns
+    assert template.grid.columns_per_row == (spec.columns,) * spec.rows
+    assert template.centers_count() == spec.rows * spec.columns
