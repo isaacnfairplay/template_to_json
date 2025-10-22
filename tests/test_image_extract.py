@@ -133,3 +133,52 @@ def test_raster_property_variations(tmp_path: Path, rows: int, columns: int) -> 
         spec=spec,
         dpi=dpi,
     )
+
+
+def test_extracts_from_png_raster(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "grid.pdf"
+    png_path = tmp_path / "grid.png"
+
+    spec = RectTemplateSpec(
+        page_size=(512.0, 336.0),
+        rows=3,
+        columns=4,
+        label_size=(84.0, 48.0),
+        start=(48.0, 70.0),
+        spacing=(96.0, 84.0),
+    )
+
+    generate_rect_template_pdf(pdf_path, spec=spec)
+    rasterize_page(pdf_path, dpi=210, png_path=png_path)
+
+    _assert_template_matches(
+        png_path,
+        spec=spec,
+        dpi=210,
+    )
+
+
+def test_raster_extraction_is_deterministic(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "grid.pdf"
+    raster_path = tmp_path / "grid_raster.pdf"
+
+    spec = RectTemplateSpec(
+        page_size=(500.0, 320.0),
+        rows=3,
+        columns=5,
+        label_size=(78.0, 44.0),
+        start=(40.0, 60.0),
+        spacing=(90.0, 86.0),
+    )
+
+    generate_rect_template_pdf(pdf_path, spec=spec)
+    rasterize_page(pdf_path, dpi=215, pdf_path=raster_path)
+
+    first = extract_template(raster_path, dpi=215)
+    second = extract_template(raster_path, dpi=215)
+
+    assert first is not None
+    assert second is not None
+    assert first.grid.rows == second.grid.rows == spec.rows
+    assert first.grid.columns == second.grid.columns == spec.columns
+    assert list(first.iter_centers()) == list(second.iter_centers())
