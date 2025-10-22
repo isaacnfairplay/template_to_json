@@ -4,7 +4,7 @@ The following tasks outline the most impactful next steps for making the templat
 
 ## Immediate Priorities
 - [x] Finalize the **vector extraction pass**: solidify rectangle detection, infer rounded corners, and validate grid clustering on representative vector PDFs.
-- [ ] Implement the **raster fallback** pipeline end-to-end (render → edge detection → morphology → connected components → grid inference) with deterministic outputs.
+- [x] Implement the **raster fallback** pipeline end-to-end (render → edge detection → morphology → connected components → grid inference) with deterministic outputs.
 - [ ] Add integration tests that run both extraction modes on synthetic PDFs to guarantee <0.5 pt error for geometry metrics.
 - [ ] Flesh out the JSON/CSV exporters to cover **percent_of_width**, points, inches, and millimeters; include round-trip tests.
 - [ ] Create regression fixtures (synthetic) and scripts under `scripts/` to reproduce extraction on sample inputs.

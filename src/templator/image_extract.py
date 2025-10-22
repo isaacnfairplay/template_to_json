@@ -9,10 +9,23 @@ from typing import Iterable, Optional, Sequence
 import fitz
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
+from PIL import Image
 
 from .models import AnchorPoints, ExtractedTemplate, GridMetrics, LabelGeometry, PageMetrics
 
 Point = tuple[float, float]
+
+_IMAGE_SUFFIXES: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")
+
+
+@dataclass(slots=True)
+class _RasterSource:
+    """Materialised raster data for a rendered PDF page or input image."""
+
+    gray: np.ndarray
+    scale: float
+    page_width_pt: float
+    page_height_pt: float
 
 
 @dataclass(slots=True)
@@ -249,13 +262,47 @@ def _filter_boxes(rectangles: Sequence[_DetectedRectangle]) -> list[_DetectedRec
     return filtered if filtered else list(rectangles)
 
 
-def _extract_rectangles_from_page(pdf_path: Path, page: int, dpi: int) -> list[_DetectedRectangle]:
-    with fitz.open(pdf_path) as document:
+def _render_raster_source(path: Path, page: int, dpi: int) -> _RasterSource:
+    suffix = path.suffix.lower()
+    if suffix in _IMAGE_SUFFIXES:
+        if page != 0:
+            msg = "Image sources support only page index 0."
+            raise IndexError(msg)
+
+        with Image.open(path) as image:
+            gray_image = image.convert("L")
+            gray = np.asarray(gray_image, dtype=np.float32)
+
+        if gray.size == 0:
+            raise ValueError("Input image is empty.")
+
+        gray /= 255.0
+
+        scale = 72.0 / float(dpi)
+        if scale <= 0:
+            msg = "Rendered raster produced a non-positive scale factor."
+            raise ValueError(msg)
+
+        height_px, width_px = gray.shape
+        page_width_pt = float(width_px) * scale
+        page_height_pt = float(height_px) * scale
+
+        return _RasterSource(
+            gray=gray,
+            scale=scale,
+            page_width_pt=page_width_pt,
+            page_height_pt=page_height_pt,
+        )
+
+    with fitz.open(path) as document:
         if page < 0 or page >= document.page_count:
             msg = f"Requested page index {page} outside range 0..{document.page_count - 1}."
             raise IndexError(msg)
 
         pdf_page = document[page]
+        page_rect = pdf_page.rect
+        is_pdf = document.is_pdf
+
         zoom = dpi / 72.0
         pixmap = pdf_page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
 
@@ -274,19 +321,42 @@ def _extract_rectangles_from_page(pdf_path: Path, page: int, dpi: int) -> list[_
 
         gray /= 255.0
 
-        magnitude, grad_x, grad_y = _sobel_edges(gray)
-        edges = _threshold_edges(magnitude)
-        closed = _binary_closing(edges, iterations=2)
-        dilated = _binary_dilation(closed, iterations=1)
+        if pixmap.width <= 0 or pixmap.height <= 0:
+            raise ValueError("Rendered raster has zero dimensions.")
 
-        boxes = _connected_components(dilated)
-        boxes = _refine_boxes(boxes, magnitude, grad_x, grad_y)
-        scale = 72.0 / dpi
-        rectangles = _component_boxes_to_rectangles(boxes, scale)
+        scale = 72.0 / float(dpi)
+        if scale <= 0:
+            msg = "Rendered raster produced a non-positive scale factor."
+            raise ValueError(msg)
 
-        filtered = _filter_boxes(rectangles)
+        if is_pdf:
+            page_width_pt = float(page_rect.width)
+            page_height_pt = float(page_rect.height)
+        else:
+            page_width_pt = float(pixmap.width) * scale
+            page_height_pt = float(pixmap.height) * scale
 
-        return filtered
+    return _RasterSource(
+        gray=gray,
+        scale=scale,
+        page_width_pt=page_width_pt,
+        page_height_pt=page_height_pt,
+    )
+
+
+def _extract_rectangles_from_raster(source: _RasterSource) -> list[_DetectedRectangle]:
+    magnitude, grad_x, grad_y = _sobel_edges(source.gray)
+    edges = _threshold_edges(magnitude)
+    closed = _binary_closing(edges, iterations=2)
+    dilated = _binary_dilation(closed, iterations=1)
+
+    boxes = _connected_components(dilated)
+    boxes = _refine_boxes(boxes, magnitude, grad_x, grad_y)
+    rectangles = _component_boxes_to_rectangles(boxes, source.scale)
+
+    filtered = _filter_boxes(rectangles)
+
+    return filtered
 
 
 def extract_template(
@@ -306,7 +376,8 @@ def extract_template(
         msg = f"The provided path does not exist: {pdf_path}"
         raise FileNotFoundError(msg)
 
-    rectangles = _extract_rectangles_from_page(pdf_path, page, dpi)
+    raster = _render_raster_source(pdf_path, page, dpi)
+    rectangles = _extract_rectangles_from_raster(raster)
     if not rectangles:
         return None
 
@@ -343,11 +414,10 @@ def extract_template(
     top_left_center = rows[0][0].center
     bottom_left_center = rows[-1][0].center
 
-    with fitz.open(pdf_path) as document:
-        pdf_page = document[page]
-        page_rect = pdf_page.rect
-
-    page_metrics = PageMetrics(width_pt=float(page_rect.width), height_pt=float(page_rect.height))
+    page_metrics = PageMetrics(
+        width_pt=raster.page_width_pt,
+        height_pt=raster.page_height_pt,
+    )
 
     grid_metrics = GridMetrics(
         kind="rectangular",
@@ -362,7 +432,7 @@ def extract_template(
 
     anchors = AnchorPoints(top_left_pt=top_left_center, bottom_left_pt=bottom_left_center)
 
-    metadata = {"extraction": "raster"}
+    metadata = {"extraction": "raster", "dpi": f"{dpi}"}
 
     return ExtractedTemplate(
         page=page_metrics,
